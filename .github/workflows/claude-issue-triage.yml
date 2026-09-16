@@ -1,0 +1,103 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    # Evita bucles con bots y evita duplicar trabajo con claude.yml, que ya
+    # atiende los issues cuyo cuerpo menciona @claude.
+    if: |
+      github.event.sender.type != 'Bot' &&
+      !contains(github.event.issue.body, '@claude')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Ensure triage labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "área: rotación/colisiones" --color "1d76db" --description "Rotación, kicks o colisiones de piezas" --force
+          gh label create "área: render/canvas" --color "1d76db" --description "Dibujo en canvas, colores, preview" --force
+          gh label create "área: controles/input" --color "1d76db" --description "Teclado, pausa, reinicio" --force
+          gh label create "área: UI/overlay" --color "1d76db" --description "Overlay, textos, HUD" --force
+          gh label create "área: dificultad/scoring" --color "1d76db" --description "Nivel, dropInterval, puntaje, líneas" --force
+          gh label create "área: build/CI" --color "1d76db" --description "Workflows, GitHub Actions, entorno" --force
+          gh label create "severidad: alta" --color "b60205" --description "Bloquea o rompe el juego" --force
+          gh label create "severidad: media" --color "d93f0b" --description "Afecta el juego pero hay salida" --force
+          gh label create "severidad: baja" --color "fbca04" --description "Cosmético o menor" --force
+          gh label create "needs-triage-failed" --color "e4e669" --description "Claude no pudo diagnosticar por falta de info" --force
+
+      - name: Run Claude triage
+        id: claude-triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh api:*),Bash(gh label list:*)"
+          prompt: |
+            Eres un triage técnico para el issue #${{ github.event.issue.number }} del repositorio
+            ${{ github.repository }} (un juego de Tetris en vanilla JS: game.js + index.html + style.css).
+
+            Pasos a seguir:
+
+            1. Lee `CLAUDE.md` en la raíz del repo antes que nada: describe invariantes clave del
+               código (índices de color en `board`, alineación de `COLORS`/`PIECES`, dimensiones del
+               canvas en HTML vs. `COLS`/`ROWS`/`BLOCK` en JS, `rotateCW` con kicks `[0,-1,1,-2,2]`
+               sin SRS, reset de `lastTime` al reanudar, dificultad derivada en `clearLines()`).
+               La mayoría de los bugs reportados se explican por alguno de estos invariantes.
+
+            2. Obtén el contenido completo del issue:
+               `gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments`
+
+            3. Lee `game.js`, `index.html` y `style.css` según haga falta para entender el problema
+               reportado o la funcionalidad pedida.
+
+            4. Clasifica el issue y asigna labels con `gh issue edit ${{ github.event.issue.number }} --add-label "..."`:
+               - Exactamente un tipo: bug, enhancement, documentation o question (usa las labels
+                 default existentes, no crees nuevas de tipo).
+               - Exactamente una label de área: "área: rotación/colisiones", "área: render/canvas",
+                 "área: controles/input", "área: UI/overlay", "área: dificultad/scoring" o
+                 "área: build/CI".
+               - Exactamente una label de severidad: "severidad: alta", "severidad: media" o
+                 "severidad: baja".
+               No quites labels que ya estén puestas por una persona. Si ya existen labels de tipo,
+               área o severidad puestas por un triage anterior tuyo, reemplázalas si tu nuevo
+               análisis difiere (usa `--remove-label` antes de `--add-label` si aplica).
+
+            5. Publica o actualiza un comentario de diagnóstico. El comentario debe empezar
+               exactamente con la línea `<!-- claude-triage -->` (sin nada más en esa línea) seguida
+               de estas secciones en este orden:
+               - **Resumen**
+               - **Clasificación** (tipo, área, severidad, y por qué)
+               - **Reproducción**
+               - **Diagnóstico técnico** (referencias concretas tipo `game.js:123`, función
+                 involucrada, causa probable, qué invariante de CLAUDE.md aplica)
+               - **Enfoque sugerido** (qué tocar y qué NO tocar; sin escribir el parche completo)
+               - **Riesgos / efectos colaterales**
+               - **Información faltante** (si aplica; en ese caso añade también la label
+                 "needs-triage-failed")
+
+               Antes de comentar, busca si ya existe un comentario tuyo con el marcador
+               `<!-- claude-triage -->`:
+               `gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments`
+               - Si existe, actualízalo con
+                 `gh api repos/${{ github.repository }}/issues/comments/<comment_id> -X PATCH -f body=...`
+               - Si no existe, créalo con
+                 `gh issue comment ${{ github.event.issue.number }} --body-file <archivo>`
+
+            Restricciones estrictas:
+            - No modifiques el cuerpo (`body`) del issue.
+            - No crees ramas, commits ni pull requests.
+            - No cierres el issue.
+            - Todo el texto de cara al usuario (el comentario) debe estar en español; los nombres de
+              archivo, funciones e identificadores técnicos se mantienen como están en el código.
