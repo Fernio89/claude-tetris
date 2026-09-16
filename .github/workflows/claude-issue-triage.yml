@@ -74,9 +74,12 @@ jobs:
                área o severidad puestas por un triage anterior tuyo, reemplázalas si tu nuevo
                análisis difiere (usa `--remove-label` antes de `--add-label` si aplica).
 
-            5. Publica o actualiza un comentario de diagnóstico. El comentario debe empezar
-               exactamente con la línea `<!-- claude-triage -->` (sin nada más en esa línea) seguida
-               de estas secciones en este orden:
+            5. Publica o actualiza un comentario de diagnóstico. El comentario debe estar escrito en
+               formato Markdown válido que GitHub pueda interpretar correctamente (encabezados con
+               `##`/`###`, listas con `-`, bloques de código con triple backtick y el lenguaje cuando
+               aplique, referencias tipo `game.js:123` como código inline). Debe empezar exactamente
+               con la línea `<!-- claude-triage -->` (sin nada más en esa línea) seguida de estas
+               secciones en este orden:
                - **Resumen**
                - **Clasificación** (tipo, área, severidad, y por qué)
                - **Reproducción**
